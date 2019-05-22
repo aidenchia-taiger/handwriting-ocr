@@ -18,7 +18,7 @@ class FilePaths:
 	fnCharList = '../model/charList.txt'
 	fnAccuracy = '../model/accuracy.txt'
 	fnTrain = '../data/'
-	fnInfer = '../data/test.png'
+	fnInfer = 'sample_imgs/iam-test4.png'
 	fnCorpus = '../data/corpus.txt'
 	fnTest = '../test_data'
 	fnClfReport = 'out/clf_wrongly_report.txt'
@@ -125,7 +125,8 @@ def main():
 	parser.add_argument('--beamsearch', help='use beam search instead of best path decoding', action='store_true')
 	parser.add_argument('--wordbeamsearch', help='use word beam search instead of best path decoding', action='store_true')
 	parser.add_argument('--test', help='test the NN with a batch of images', action='store_true')
-	parser.add_argument('--infer', help="infer a single image")
+	parser.add_argument('--infer', help="infer a single image", nargs='?',const=FilePaths.fnInfer)
+	parser.add_argument('--model', help='choose the NN model to use, e.g. snapshot-12', nargs='?', const="")
 	args = parser.parse_args()
 
 	decoderType = DecoderType.BestPath
@@ -147,7 +148,7 @@ def main():
 
 		# execute training or validation
 		if args.train:
-			model = Model(loader.charList, decoderType)
+			model = Model(loader.charList, decoderType, mustRestore=True)
 			train(model, loader)
 		elif args.validate:
 			model = Model(loader.charList, decoderType, mustRestore=True)
@@ -184,16 +185,19 @@ def main():
 
 	# infer text on test image
 	else:
-		print('[INFO] Loading Model...')
+		print('[INFO] Loading Model')
 		print(open(FilePaths.fnAccuracy).read())
-		model = Model(open(FilePaths.fnCharList).read(), decoderType, mustRestore=True)
+		if args.model == "":
+			model = Model(open(FilePaths.fnCharList).read(), decoderType, mustRestore=True)
+		else:
+			f = open('../model/checkpoint', 'w+')
+			f.write("model_checkpoint_path: '{}'\n".format(args.model))
+			f.write("all_model_checkpoint_paths: '{}'".format(args.model))
+			f.close()
+			model = Model(open(FilePaths.fnCharList).read(), decoderType, mustRestore=True)
 
 		word = args.infer
-		if word != "":
-			infer(model, word)
-
-		else:
-			infer(model, FilePaths.fnInfer)
+		infer(model, word)
 
 ### aiden
 def read_gt_values(path):
@@ -212,7 +216,7 @@ def get_img_paths(path):
 			if ".png" in path:
 				paths.append(os.path.abspath(os.path.join(root, path)))
 
-	print(paths)
+	#print(paths)
 	return paths
 
 def write_dic_to_txt(dic, txtfilename):

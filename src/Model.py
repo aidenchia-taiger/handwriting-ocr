@@ -244,4 +244,5 @@ class Model:
 		"save model to file"
 		self.snapID += 1
 		self.saver.save(self.sess, '../model/snapshot', global_step=self.snapID)
+		print('[INFO] Saved model to ../model/snapshot')
  

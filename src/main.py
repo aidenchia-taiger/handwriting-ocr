@@ -115,8 +115,8 @@ def main():
 	"main function"
 
 	# Ignore tensorflow deprecation warnings
-	import tensorflow.python.util.deprecation as deprecation
-	deprecation._PRINT_DEPRECATION_WARNINGS = False
+	#import tensorflow.python.util.deprecation as deprecation
+	#deprecation._PRINT_DEPRECATION_WARNINGS = False
 
 	# optional command line args
 	parser = argparse.ArgumentParser()
@@ -188,9 +188,9 @@ def main():
 		print(open(FilePaths.fnAccuracy).read())
 		model = Model(open(FilePaths.fnCharList).read(), decoderType, mustRestore=True)
 
-		infer = args.infer
-		if infer != "":
-			infer(model, infer)
+		word = args.infer
+		if word != "":
+			infer(model, word)
 
 		else:
 			infer(model, FilePaths.fnInfer)

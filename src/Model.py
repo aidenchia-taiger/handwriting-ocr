@@ -4,7 +4,7 @@ from __future__ import print_function
 import sys
 import numpy as np
 import tensorflow as tf
-
+import datetime
 
 class DecoderType:
 	BestPath = 0
@@ -16,17 +16,19 @@ class Model:
 	"minimalistic TF model for HTR"
 
 	# model constants
-	batchSize = 50
+	batchSize = 8 # default: 50
 	imgSize = (128, 32)
 	maxTextLen = 32
+	LOG_PATH = '../model/logs/' + datetime.datetime.now().strftime("Time_%H%M_Date_%d-%m")
 
-	def __init__(self, charList, decoderType=DecoderType.BestPath, mustRestore=False):
+	def __init__(self, charList, decoderType=DecoderType.BestPath, mustRestore=False, log=False):
 		"init model: add CNN, RNN and CTC and initialize TF"
 		self.charList = charList
 		self.decoderType = decoderType
 		self.mustRestore = mustRestore
 		self.snapID = 0
-
+		self.charErrorRate = 0.0
+		self.wordAccuracy = 0.0
 		# Whether to use normalization over a batch or a population
 		self.is_train = tf.placeholder(tf.bool, name='is_train')
 
@@ -43,10 +45,12 @@ class Model:
 		self.learningRate = tf.placeholder(tf.float32, shape=[])
 		self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS) 
 		with tf.control_dependencies(self.update_ops):
-			self.optimizer = tf.train.RMSPropOptimizer(self.learningRate).minimize(self.loss)
+			self.optimizer = tf.train.AdamOptimizer(self.learningRate).minimize(self.loss)
 
 		# initialize TF
 		(self.sess, self.saver) = self.setupTF()
+		if log:
+			self.writer = tf.summary.FileWriter(Model.LOG_PATH, self.sess.graph)
 
 			
 	def setupCNN(self):
@@ -68,8 +72,8 @@ class Model:
 			relu = tf.nn.relu(conv_norm)
 			pool = tf.nn.max_pool(relu, (1, poolVals[i][0], poolVals[i][1], 1), (1, strideVals[i][0], strideVals[i][1], 1), 'VALID')
 
-		self.cnnOut4d = pool
-
+		dropout = tf.nn.dropout(pool, keep_prob=0.4)
+		self.cnnOut4d = dropout
 
 	def setupRNN(self):
 		"create RNN layers and return output of these layers"
@@ -86,7 +90,7 @@ class Model:
 		# BxTxF -> BxTx2H
 		((fw, bw), _) = tf.nn.bidirectional_dynamic_rnn(cell_fw=stacked, cell_bw=stacked, inputs=rnnIn3d, dtype=rnnIn3d.dtype)
 									
-		# BxTxH + BxTxH -> BxTx2H -> BxTx1X2H
+		# BxTxH + BxTxH -> BxTx2H -> BxTx1X2H i.e. expand dim needed for atrous convolution
 		concat = tf.expand_dims(tf.concat([fw, bw], 2), 2)
 									
 		# project output to chars (including blank): BxTx1x2H -> BxTx1xC -> BxTxC
@@ -96,14 +100,14 @@ class Model:
 
 	def setupCTC(self):
 		"create CTC loss and decoder and return them"
-		# BxTxC -> TxBxC
+		# BxTxC -> TxBxC i.e. Time * Batch * Classes, transpose needed for tf ctc loss
 		self.ctcIn3dTBC = tf.transpose(self.rnnOut3d, [1, 0, 2])
-		# ground truth text as sparse tensor
+		# ground truth text as sparse tensor, required by tf ctc loss
 		self.gtTexts = tf.SparseTensor(tf.placeholder(tf.int64, shape=[None, 2]) , tf.placeholder(tf.int32, [None]), tf.placeholder(tf.int64, [2]))
 
 		# calc loss for batch
 		self.seqLen = tf.placeholder(tf.int32, [None])
-		self.loss = tf.reduce_mean(tf.nn.ctc_loss(labels=self.gtTexts, inputs=self.ctcIn3dTBC, sequence_length=self.seqLen, ctc_merge_repeated=True))
+		self.loss = tf.reduce_mean(tf.nn.ctc_loss(labels=self.gtTexts, inputs=self.ctcIn3dTBC, sequence_length=self.seqLen, ctc_merge_repeated=True, ignore_longer_outputs_than_inputs=True))
 
 		# calc loss for each element to compute label probability
 		self.savedCtcInput = tf.placeholder(tf.float32, shape=[Model.maxTextLen, None, len(self.charList) + 1])
@@ -137,6 +141,10 @@ class Model:
 		saver = tf.train.Saver(max_to_keep=1) # saver saves model to file
 		modelDir = '../model/'
 		latestSnapshot = tf.train.latest_checkpoint(modelDir) # is there a saved model?
+
+		self.batch_loss_summary = tf.summary.scalar(name="Batch Loss", tensor= self.loss)
+		#self.CER_summary = tf.summary.scalar(name="Character Error Rate",tensor = self.charErrorRate)
+		#self.WA_summary = tf.summary.scalar(name="Word Accuracy", tensor = self.wordAccuracy)
 
 		# if model must be restored (for inference), there must be a snapshot
 		if self.mustRestore and not latestSnapshot:
@@ -210,9 +218,11 @@ class Model:
 		numBatchElements = len(batch.imgs)
 		sparse = self.toSparse(batch.gtTexts)
 		rate = 0.01 if self.batchesTrained < 10 else (0.001 if self.batchesTrained < 10000 else 0.0001) # decay learning rate
-		evalList = [self.optimizer, self.loss]
+		#rate = 0.01
+		evalList = [self.batch_loss_summary,self.optimizer, self.loss]
 		feedDict = {self.inputImgs : batch.imgs, self.gtTexts : sparse , self.seqLen : [Model.maxTextLen] * numBatchElements, self.learningRate : rate, self.is_train: True}
-		(_, lossVal) = self.sess.run(evalList, feedDict)
+		(summary,_, lossVal) = self.sess.run(evalList, feedDict)
+		self.writer.add_summary(summary, self.batchesTrained)
 		self.batchesTrained += 1
 		return lossVal
 
@@ -238,7 +248,13 @@ class Model:
 			lossVals = self.sess.run(evalList, feedDict)
 			probs = np.exp(-lossVals)
 		return (texts, probs)
-	
+
+	def plotMetricsOnTB(self, charErrorRate, wordAccuracy):
+		CER_summary = tf.Summary(value=[tf.Summary.Value(tag='Character Error Rate', simple_value=charErrorRate)])
+		self.writer.add_summary(CER_summary, self.batchesTrained)
+		return	
+
+
 
 	def save(self):
 		"save model to file"

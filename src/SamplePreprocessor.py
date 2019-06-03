@@ -1,6 +1,7 @@
 from __future__ import division
 from __future__ import print_function
-from WordSegmentator import prepareImg, wordSegmentation, createKernel
+from DataAugmentator import DataAugmentator
+from WordSegmentator import prepareImg, wordSegmentation
 
 import random
 import numpy as np
@@ -16,14 +17,17 @@ def preprocess(img, imgSize, dataAugmentation=False):
 
 	# increase dataset size by applying random stretches to the images
 	if dataAugmentation:
-		stretch = (random.random() - 0.5) # -0.5 .. +0.5
-		wStretched = max(int(img.shape[1] * (1 + stretch)), 1) # random width, but at least 1
-		img = cv2.resize(img, (wStretched, img.shape[0])) # stretch horizontally by factor 0.5 .. 1.5
-	
-	### WORD SEGMENTATION
-	img = prepareImg(img, 50)
-	res = wordSegmentation(img, kernelSize=25, sigma=11, theta=7, minArea=100)[0]
-	img = res[1] # tightly cropped word
+		da = DataAugmentator()
+		img = da.augment(img)
+
+	### if not doing data augmentation, must be inferring, so perform word segmentation to get word tightly cropped
+	else:
+		img = prepareImg(img, 50)
+		try:
+			res = wordSegmentation(img, kernelSize=25, sigma=11, theta=7, minArea=100)[0]
+			img = res[1] # res[0] is the bounding box coordinates, res[1] is the tightly cropped img itself
+		except IndexError: # sometimes word segmentation doesn't always work
+			print('Skipping word segmentation')
 	###
 
 	# create target image and copy sample image into it
@@ -47,3 +51,10 @@ def preprocess(img, imgSize, dataAugmentation=False):
 	img = img - m
 	img = img / s if s>0 else img
 	return img
+
+if __name__ == ('__main__'):
+	imgSize = (128, 32)
+	img = preprocess(cv2.imread('sample_imgs/iam-test2.png', cv2.IMREAD_GRAYSCALE), imgSize, dataAugmentation=True)
+	cv2.imshow('preprocessed-img',img)
+	cv2.waitKey(0)
+	cv2.destroyAllWindows()

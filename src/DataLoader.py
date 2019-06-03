@@ -7,7 +7,6 @@ import numpy as np
 import cv2
 from SamplePreprocessor import preprocess
 
-
 class Sample:
 	"sample from the dataset"
 	def __init__(self, gtText, filePath):
@@ -20,6 +19,101 @@ class Batch:
 	def __init__(self, gtTexts, imgs):
 		self.imgs = np.stack(imgs, axis=0)
 		self.gtTexts = gtTexts
+
+class CustomLoader:
+	"loads data with ground truth according to 'ground_truth.txt' file written with format (fullPath, groundTruth) e.g. (/users/aidenchia/..../example.png, EXAMPLE)"
+	def __init__(self, filePath, batchSize, imgSize, maxTextLen):
+		assert filePath[-1]=='/'
+
+		self.dataAugmentation = False
+		self.currIdx = 0
+		self.batchSize = batchSize
+		self.imgSize = imgSize
+		self.samples = []
+		
+		f=open(filePath+'ground_truth.txt', 'r')
+
+		for line in f:
+			line = line.strip().split()
+			filePath = line[0]
+			gtText = line[1]
+			self.samples.append(Sample(gtText=gtText, filePath=filePath))
+
+		# split into training and validation set, default: 95% - 5%
+		splitIdx = int(0.95 * len(self.samples))
+		self.trainSamples = self.samples[:splitIdx]
+		self.validationSamples = self.samples[splitIdx:]
+		print('[INFO] No. of Training Samples: {} | No. of Validation Samples: {}'.format(len(self.trainSamples), len(self.validationSamples)))
+		
+		# put words into lists
+		self.trainWords = [x.gtText for x in self.trainSamples]
+		self.validationWords = [x.gtText for x in self.validationSamples]
+
+		# number of randomly chosen samples per epoch for training, default: 25000
+		self.numTrainSamplesPerEpoch = 25000 
+		
+		# start with train set
+		self.trainSet()
+
+		# list of all chars in dataset
+		#self.charList = sorted(list(chars))
+		f = open('../model/charList.txt', 'r')
+		self.charList = f.read()
+		f.close()
+
+
+	def truncateLabel(self, text, maxTextLen):
+		# ctc_loss can't compute loss if it cannot find a mapping between text label and input 
+		# labels. Repeat letters cost double because of the blank symbol needing to be inserted.
+		# If a too-long label is provided, ctc_loss returns an infinite gradient
+		cost = 0
+		for i in range(len(text)):
+			if i != 0 and text[i] == text[i-1]:
+				cost += 2
+			else:
+				cost += 1
+			if cost > maxTextLen:
+				return text[:i]
+		return text
+
+
+	def trainSet(self):
+		"switch to randomly chosen subset of training set"
+		self.dataAugmentation = True
+		self.currIdx = 0
+		random.shuffle(self.trainSamples)
+		self.samples = self.trainSamples[:self.numTrainSamplesPerEpoch]
+
+	
+	def validationSet(self):
+		"switch to validation set"
+		self.dataAugmentation = False
+		self.currIdx = 0
+		self.samples = self.validationSamples
+
+
+	def getIteratorInfo(self):
+		"current batch index and overall number of batches"
+		return (self.currIdx // self.batchSize + 1, len(self.samples) // self.batchSize)
+
+
+	def hasNext(self):
+		"iterator"
+		return self.currIdx + self.batchSize <= len(self.samples)
+		
+		
+	def getNext(self):
+		"iterator"
+		batchRange = range(self.currIdx, self.currIdx + self.batchSize)
+		gtTexts = []
+		for i in batchRange:
+			filePath = self.samples[i].filePath
+			print('Loading ', filePath.split('/')[-1])
+			gtTexts.append(self.samples[i].gtText)
+		#gtTexts = [self.samples[i].gtText for i in batchRange]
+		imgs = [preprocess(cv2.imread(self.samples[i].filePath, cv2.IMREAD_GRAYSCALE), self.imgSize, self.dataAugmentation) for i in batchRange]
+		self.currIdx += self.batchSize
+		return Batch(gtTexts, imgs)
 
 
 class DataLoader:
@@ -36,10 +130,11 @@ class DataLoader:
 		self.imgSize = imgSize
 		self.samples = []
 	
-		f=open(filePath+'words.txt')
 		chars = set()
 		bad_samples = []
 		bad_samples_reference = ['a01-117-05-02.png', 'r06-022-03-05.png']
+		f=open(filePath+'words.txt')
+
 		for line in f:
 			# ignore comment line
 			if not line or line[0]=='#':
@@ -140,3 +235,7 @@ class DataLoader:
 		return Batch(gtTexts, imgs)
 
 
+if __name__ == '__main__':
+	loader = CustomLoader('../new_data/', batchSize=16, imgSize=(128, 32), maxTextLen=32)
+	loader.getNext()
+	print(loader.hasNext())

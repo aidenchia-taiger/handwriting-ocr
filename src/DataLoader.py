@@ -6,6 +6,7 @@ import random
 import numpy as np
 import cv2
 from SamplePreprocessor import preprocess
+from Model import Model
 
 class Sample:
 	"sample from the dataset"
@@ -40,11 +41,11 @@ class CustomLoader:
 			self.samples.append(Sample(gtText=gtText, filePath=filePath))
 
 		# split into training and validation set, default: 95% - 5%
-		splitIdx = int(0.95 * len(self.samples))
+		splitIdx = int(0.90 * len(self.samples))
 		self.trainSamples = self.samples[:splitIdx]
 		self.validationSamples = self.samples[splitIdx:]
 		print('[INFO] No. of Training Samples: {} | No. of Validation Samples: {}'.format(len(self.trainSamples), len(self.validationSamples)))
-		
+		assert(len(self.validationSamples) > Model.batchSize)
 		# put words into lists
 		self.trainWords = [x.gtText for x in self.trainSamples]
 		self.validationWords = [x.gtText for x in self.validationSamples]
@@ -108,7 +109,7 @@ class CustomLoader:
 		gtTexts = []
 		for i in batchRange:
 			filePath = self.samples[i].filePath
-			print('Loading ', filePath.split('/')[-1])
+			#print('Loading ', filePath.split('/')[-1])
 			gtTexts.append(self.samples[i].gtText)
 		#gtTexts = [self.samples[i].gtText for i in batchRange]
 		imgs = [preprocess(cv2.imread(self.samples[i].filePath, cv2.IMREAD_GRAYSCALE), self.imgSize, self.dataAugmentation) for i in batchRange]

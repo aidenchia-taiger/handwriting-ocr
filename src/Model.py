@@ -21,7 +21,7 @@ class Model:
 	maxTextLen = 32
 	LOG_PATH = '../model/logs/' + datetime.datetime.now().strftime("Time_%H%M_Date_%d-%m")
 
-	def __init__(self, charList, decoderType=DecoderType.BestPath, mustRestore=False, log=False):
+	def __init__(self, charList, decoderType=DecoderType.BestPath, mustRestore=False, modelName=None, log=False):
 		"init model: add CNN, RNN and CTC and initialize TF"
 		self.charList = charList
 		self.decoderType = decoderType
@@ -29,6 +29,7 @@ class Model:
 		self.snapID = 0
 		self.charErrorRate = 0.0
 		self.wordAccuracy = 0.0
+		self.modelName = modelName
 		# Whether to use normalization over a batch or a population
 		self.is_train = tf.placeholder(tf.bool, name='is_train')
 
@@ -70,9 +71,15 @@ class Model:
 			conv = tf.nn.conv2d(pool, kernel, padding='SAME',  strides=(1,1,1,1))
 			conv_norm = tf.layers.batch_normalization(conv, training=self.is_train)
 			relu = tf.nn.relu(conv_norm)
-			pool = tf.nn.max_pool(relu, (1, poolVals[i][0], poolVals[i][1], 1), (1, strideVals[i][0], strideVals[i][1], 1), 'VALID')
+			kernel2 = tf.Variable(tf.truncated_normal([kernelVals[i], kernelVals[i], featureVals[i + 1], featureVals[i + 1]], stddev=0.1))
+			conv2 = tf.nn.conv2d(relu, kernel2, padding='SAME',  strides=(1,1,1,1))
+			conv_norm2 = tf.layers.batch_normalization(conv2, training=self.is_train)
+			relu2 = tf.nn.relu(conv_norm2)
+			pool = tf.nn.max_pool(relu2, (1, poolVals[i][0], poolVals[i][1], 1), (1, strideVals[i][0], strideVals[i][1], 1), 'VALID')
 
-		dropout = tf.nn.dropout(pool, keep_prob=0.4)
+		self.dropout_rate = tf.placeholder_with_default(0.0, shape=())
+		prob = tf.math.subtract(1.0, self.dropout_rate)
+		dropout = tf.nn.dropout(pool, keep_prob=prob)
 		self.cnnOut4d = dropout
 
 	def setupRNN(self):
@@ -120,7 +127,7 @@ class Model:
 			self.decoder = tf.nn.ctc_beam_search_decoder(inputs=self.ctcIn3dTBC, sequence_length=self.seqLen, beam_width=50, merge_repeated=False)
 		elif self.decoderType == DecoderType.WordBeamSearch:
 			# import compiled word beam search operation (see https://github.com/githubharald/CTCWordBeamSearch)
-			word_beam_search_module = tf.load_op_library('TFWordBeamSearch.so')
+			word_beam_search_module = tf.load_op_library('/home/aidenchia/Documents/handwriting-ocr/src/TFWordBeamSearch.so')
 
 			# prepare information about language (dictionary, characters in dataset, characters forming words) 
 			chars = str().join(self.charList)
@@ -139,21 +146,17 @@ class Model:
 		sess=tf.Session() # TF session
 
 		saver = tf.train.Saver(max_to_keep=1) # saver saves model to file
-		modelDir = '../model/'
-		latestSnapshot = tf.train.latest_checkpoint(modelDir) # is there a saved model?
 
-		self.batch_loss_summary = tf.summary.scalar(name="Batch Loss", tensor= self.loss)
-		#self.CER_summary = tf.summary.scalar(name="Character Error Rate",tensor = self.charErrorRate)
-		#self.WA_summary = tf.summary.scalar(name="Word Accuracy", tensor = self.wordAccuracy)
+		self.batch_loss_summary = tf.summary.scalar(name="Batch Loss", tensor= self.loss) # log to tensorboard
 
 		# if model must be restored (for inference), there must be a snapshot
-		if self.mustRestore and not latestSnapshot:
-			raise Exception('No saved model found in: ' + modelDir)
+		if self.mustRestore and not self.modelName:
+			raise Exception('Could not find or open {}'.format(self.modelName))
 
-		# load saved model if available
-		if latestSnapshot:
-			print('Init with stored values from ' + latestSnapshot)
-			saver.restore(sess, latestSnapshot)
+		# load saved model
+		if self.modelName != 'new':
+			print('Init with stored values from ' + self.modelName)
+			saver.restore(sess, self.modelName)
 		else:
 			print('Init with new values')
 			sess.run(tf.global_variables_initializer())
@@ -220,7 +223,7 @@ class Model:
 		rate = 0.01 if self.batchesTrained < 10 else (0.001 if self.batchesTrained < 10000 else 0.0001) # decay learning rate
 		#rate = 0.01
 		evalList = [self.batch_loss_summary,self.optimizer, self.loss]
-		feedDict = {self.inputImgs : batch.imgs, self.gtTexts : sparse , self.seqLen : [Model.maxTextLen] * numBatchElements, self.learningRate : rate, self.is_train: True}
+		feedDict = {self.inputImgs : batch.imgs, self.gtTexts : sparse , self.seqLen : [Model.maxTextLen] * numBatchElements, self.learningRate : rate, self.is_train: True, self.dropout_rate: 0.6}
 		(summary,_, lossVal) = self.sess.run(evalList, feedDict)
 		self.writer.add_summary(summary, self.batchesTrained)
 		self.batchesTrained += 1

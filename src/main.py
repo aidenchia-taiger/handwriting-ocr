@@ -16,6 +16,7 @@ from WordSegmentator import wordSegmentation, prepareImg
 
 class FilePaths:
 	"filenames and paths to data"
+	fnModel = '../model/'
 	fnCharList = '../model/charList.txt'
 	fnAccuracy = '../model/accuracy.txt'
 	fnCheckpoint = '../model/checkpoint'
@@ -131,6 +132,7 @@ def main():
 	parser.add_argument('--wordbeamsearch', help='use word beam search instead of best path decoding', action='store_true')
 	parser.add_argument('--test', help='test the NN with a batch of images', action='store_true')
 	parser.add_argument('--infer', help="infer a single image")
+	parser.add_argument('--model', help='select the model to use')
 	args = parser.parse_args()
 
 	decoderType = DecoderType.BestPath
@@ -138,6 +140,13 @@ def main():
 		decoderType = DecoderType.BeamSearch
 	elif args.wordbeamsearch:
 		decoderType = DecoderType.WordBeamSearch
+
+	if args.model == None: 
+		modelName = tf.train.latest_checkpoint(FilePaths.fnModel) # by default, use latest checkpoint
+	elif args.model == 'new':
+		modelName = 'new' # start from a new model
+	else:
+		modelName = FilePaths.fnModel + args.model  # specify the exact model to use
 
 	# train or validate on IAM dataset	
 	if args.train or args.validate:
@@ -152,10 +161,10 @@ def main():
 
 		# execute training or validation
 		if args.train:
-			model = Model(loader.charList, decoderType, log=True)
+			model = Model(loader.charList, decoderType, modelName=modelName,log=True)
 			train(model, loader)
 		elif args.validate:
-			model = Model(loader.charList, decoderType, mustRestore=True)
+			model = Model(loader.charList, decoderType, modelName=modelName, mustRestore=True)
 			validate(model, loader)
 
 
@@ -164,7 +173,7 @@ def main():
 		report = open(FilePaths.fnReport, 'a')
 		report.write('\n[MODEL] {}'.format(open(FilePaths.fnCheckpoint, 'r').readline().split(' ')[-1]))
 
-		model = Model(open(FilePaths.fnCharList).read(), decoderType, mustRestore=True)
+		model = Model(open(FilePaths.fnCharList).read(), decoderType, modelName=modelName,mustRestore=True)
 		gtTexts = read_gt_values(FilePaths.fnTest + 'ground_truth.txt')
 
 		numWordOK = 0
@@ -179,10 +188,12 @@ def main():
 			numCharErr += dist	
 			numCharTotal += len(gt)
 			if dist == 0:
-				print('[OK] {} -> {}'.format(gt, recognized))
+				statement = '[OK] {} -> {}'.format(gt, recognized)
 			else:
-				print('[ERR{}] {} -> {}'.format(dist,gt,recognized))
-				report.write('[ERR{}] {} -> {}\n'.format(dist,gt, recognized))
+				statement = '[ERR{}] {} -> {}'.format(dist,gt,recognized)
+				
+			print(statement)
+			report.write(statement + '\n')
 
 		charErrorRate = numCharErr / numCharTotal
 		wordAccuracy = numWordOK / numWordTotal
@@ -195,8 +206,7 @@ def main():
 
 	# infer text on test image
 	else:
-		#print(open(FilePaths.fnAccuracy).read())
-		model = Model(open(FilePaths.fnCharList).read(), decoderType, mustRestore=True)
+		model = Model(open(FilePaths.fnCharList).read(), decoderType, mustRestore=True, modelName=modelName)
 
 		word = args.infer
 		if word != None:

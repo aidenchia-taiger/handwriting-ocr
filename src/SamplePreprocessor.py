@@ -7,6 +7,16 @@ import random
 import numpy as np
 import cv2
 
+def custom_preprocess(img, imgSize, dataAugmentation=False):
+	
+	if dataAugmentation:
+		da = DataAugmentator()
+		img = da.augment(img)
+
+	img = cv2.resize(img, (imgSize[0], imgSize[1]))
+	img = cv2.normalize(img, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+	return img
+
 
 def preprocess(img, imgSize, dataAugmentation=False):
 	"put img into target img of size imgSize, transpose for TF and normalize gray-values"

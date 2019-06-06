@@ -4,6 +4,7 @@ from __future__ import print_function
 import sys
 import numpy as np
 import tensorflow as tf
+import tensorflow_hub as hub
 import datetime
 
 class DecoderType:
@@ -11,19 +12,19 @@ class DecoderType:
 	BeamSearch = 1
 	WordBeamSearch = 2
 
-
 class Model: 
 	"minimalistic TF model for HTR"
 
 	# model constants
-	batchSize = 8 # default: 50
-	imgSize = (128, 32)
+	batchSize = 50 # default: 50
+	imgSize = (224, 224, 3) # default: (128, 32)
 	maxTextLen = 32
+	MODULE_URL = 'https://tfhub.dev/google/imagenet/resnet_v2_50/feature_vector/3'
 	LOG_PATH = '../model/logs/' + datetime.datetime.now().strftime("Time_%H%M_Date_%d-%m")
 
 	def __init__(self, charList, decoderType=DecoderType.BestPath, mustRestore=False, modelName=None, log=False):
 		"init model: add CNN, RNN and CTC and initialize TF"
-		self.charList = charList
+		self.charList = charList # FilePaths.
 		self.decoderType = decoderType
 		self.mustRestore = mustRestore
 		self.snapID = 0
@@ -34,11 +35,17 @@ class Model:
 		self.is_train = tf.placeholder(tf.bool, name='is_train')
 
 		# input image batch
-		self.inputImgs = tf.placeholder(tf.float32, shape=(None, Model.imgSize[0], Model.imgSize[1]))
+		#self.inputImgs = tf.placeholder(tf.float32, shape=(None, Model.imgSize[0], Model.imgSize[1])) : default
+		self.inputImgs = tf.placeholder(tf.float32, shape=(None, Model.imgSize[0], Model.imgSize[1], Model.imgSize[2]))
 
-		# setup CNN, RNN and CTC
-		self.setupCNN()
-		self.setupRNN()
+		# setup CNN, RNN and CTC: default methods
+		#self.setupCNN()
+		#self.setupRNN()
+		#self.setupCTC()
+
+		# setup deep CNN, RNN and CTC
+		self.setupDeepCNN()
+		self.setupRNN2()
 		self.setupCTC()
 
 		# setup optimizer to train NN
@@ -53,10 +60,41 @@ class Model:
 		if log:
 			self.writer = tf.summary.FileWriter(Model.LOG_PATH, self.sess.graph)
 
-			
+	def setupDeepCNN(self):
+		'Input: (? , 224, 224, 3) => Output: (?, 1, 2048)'
+		module = hub.Module(Model.MODULE_URL, trainable=True)
+		cnnOut = module(self.inputImgs)
+
+		self.dropout_rate = tf.placeholder_with_default(0.0, shape=())
+		prob = tf.math.subtract(1.0, self.dropout_rate)
+		dropout = tf.nn.dropout(cnnOut, keep_prob=prob)
+		self.cnnOut3d = tf.reshape(tensor=dropout, shape=[-1, 32, 64])
+
+	def setupRNN2(self):
+		rnnIn = self.cnnOut3d
+
+		# basic cells which is used to build RNN
+		numHidden = 256
+		cells = [tf.contrib.rnn.LSTMCell(num_units=numHidden, state_is_tuple=True) for _ in range(2)] # 2 layers
+
+		# stack basic cells
+		stacked = tf.contrib.rnn.MultiRNNCell(cells, state_is_tuple=True)
+
+		# bidirectional RNN
+		((fw, bw), _) = tf.nn.bidirectional_dynamic_rnn(cell_fw=stacked, cell_bw=stacked, inputs=rnnIn, dtype=rnnIn.dtype)
+		
+		# BxTxH + BxTxH -> BxTx2H -> BxTx1X2H i.e. expand dim needed for atrous convolution
+		concat = tf.expand_dims(tf.concat([fw, bw], 2), 2)
+
+		# project output to chars (including blank): BxTx1x2H -> BxTx1xC -> BxTxC
+		kernel = tf.Variable(tf.truncated_normal([1, 1, numHidden * 2, len(self.charList) + 1], stddev=0.1))
+		self.rnnOut3d = tf.squeeze(tf.nn.atrous_conv2d(value=concat, filters=kernel, rate=1, padding='SAME'), axis=[2])
+
 	def setupCNN(self):
 		"create CNN layers and return output of these layers"
-		cnnIn4d = tf.expand_dims(input=self.inputImgs, axis=3)
+		"Input: (?, 128, 32) => Output: (?, 32, 1, 256)"  
+		"Formula: Output shape = (W - F + 2P) / S + 1, where W is input, F kernel size, S stride, P amount of padding"
+		cnnIn4d = tf.expand_dims(input=self.inputImgs, axis=3) # (?, 128, 32) => (?, 128, 32, 1)
 
 		# list of parameters for the layers
 		kernelVals = [5, 5, 3, 3, 3]
@@ -105,10 +143,11 @@ class Model:
 		self.rnnOut3d = tf.squeeze(tf.nn.atrous_conv2d(value=concat, filters=kernel, rate=1, padding='SAME'), axis=[2])
 		
 
+
 	def setupCTC(self):
 		"create CTC loss and decoder and return them"
 		# BxTxC -> TxBxC i.e. Time * Batch * Classes, transpose needed for tf ctc loss
-		self.ctcIn3dTBC = tf.transpose(self.rnnOut3d, [1, 0, 2])
+		self.ctcIn3dTBC = tf.transpose(self.rnnOut3d, [1, 0, 2]) # (?, 32, 80) => (32, ?, 80)
 		# ground truth text as sparse tensor, required by tf ctc loss
 		self.gtTexts = tf.SparseTensor(tf.placeholder(tf.int64, shape=[None, 2]) , tf.placeholder(tf.int32, [None]), tf.placeholder(tf.int64, [2]))
 
@@ -264,4 +303,90 @@ class Model:
 		self.snapID += 1
 		self.saver.save(self.sess, '../model/snapshot', global_step=self.snapID)
 		print('[INFO] Saved model to ../model/snapshot')
- 
+
+
+class ResNet():
+	def __init__(self):
+		filters = [64, 64, 128, 256, 512]
+        kernels = [7, 3, 3, 3, 3]
+        strides = [2, 0, 2, 2, 2]
+
+        # conv1
+        x = self._conv(self.inputImgs, kernels[0], filters[0], strides[0])
+        x = self._bn(x)
+        x = self._relu(x)
+        x = tf.nn.max_pool(value=x, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1], padding='SAME')
+
+        # conv2_x
+        x = self._residual_block(x, name='conv2_1')
+        x = self._residual_block(x, name='conv2_2')
+
+        # conv3_x
+        x = self._residual_block_first(x, filters[2], strides[2], name='conv3_1')
+        x = self._residual_block(x, name='conv3_2')
+
+        # conv4_x
+        x = self._residual_block_first(x, filters[3], strides[3], name='conv4_1')
+        x = self._residual_block(x, name='conv4_2')
+
+        # conv5_x
+        x = self._residual_block_first(x, filters[4], strides[4], name='conv5_1')
+        x = self._residual_block(x, name='conv5_2')
+
+
+
+
+    def conv(self, x, filter_size, out_channel, strides, pad='SAME', name='conv'):
+    	in_shape = x.get_shape()
+    	with tf.variable_scope(name):
+    		kernel = tf.get_variable(name='kernel', 
+    			shape=[filter_size, filter_size, in_shape[3], out_channel],
+    			dtype=tf.float32, 
+    			initializer=tf.random_normal_initializer(stddev=np.sqrt(2.0/filter_size/filter_size/out_channel)))
+
+    	conv = tf.nn.conv2d(input=x, filter=kernel, strides=[1, strides, strides, 1], padding=pad)
+    	return conv
+
+    def _bn(self, x):
+    	return tf.nn.batch_normalization(x, trainable=self.is_train)
+
+    def _relu(self, x):
+    	return tf.nn.relu(x, name='relu')
+
+    def _residual_block(self, x, name="unit"):
+    	num_channel = x.get_shape().as_list()[-1]
+    	with tf.variable_scope(name) as scope:
+    		shortcut = x
+    		x = self._conv(x, 3, num_channel, 1, input_q=input_q, output_q=output_q, name='conv_1')
+            x = self._bn(x, name='bn_1')
+            x = self._relu(x, name='relu_1')
+            x = self._conv(x, 3, num_channel, 1, input_q=output_q, output_q=output_q, name='conv_2')
+            x = self._bn(x, name='bn_2')
+
+            x = x + shortcut
+            x = self._relu(x, name='relu_2')
+        return x
+
+    def _residual_block_first(self, x, out_channel, strides, name="unit"):
+        in_channel = x.get_shape().as_list()[-1]
+        with tf.variable_scope(name) as scope:
+            # Shortcut connection
+            if in_channel == out_channel:
+                if strides == 1:
+                    shortcut = tf.identity(x)
+                else:
+                    shortcut = tf.nn.max_pool(x, [1, strides, strides, 1], [1, strides, strides, 1], 'VALID')
+            else:
+                shortcut = self._conv(x, 1, out_channel, strides, name='shortcut')
+            # Residual
+            x = self._conv(x, 3, out_channel, strides, name='conv_1')
+            x = self._bn(x, name='bn_1')
+            x = self._relu(x, name='relu_1')
+            x = self._conv(x, 3, out_channel, 1, name='conv_2')
+            x = self._bn(x, name='bn_2')
+            # Merge
+            x = x + shortcut
+            x = self._relu(x, name='relu_2')
+        return x
+
+

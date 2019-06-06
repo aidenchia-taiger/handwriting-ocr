@@ -5,7 +5,7 @@ import os
 import random
 import numpy as np
 import cv2
-from SamplePreprocessor import preprocess
+from SamplePreprocessor import preprocess, custom_preprocess
 from Model import Model
 
 class Sample:
@@ -62,7 +62,6 @@ class CustomLoader:
 		self.charList = f.read()
 		f.close()
 
-
 	def truncateLabel(self, text, maxTextLen):
 		# ctc_loss can't compute loss if it cannot find a mapping between text label and input 
 		# labels. Repeat letters cost double because of the blank symbol needing to be inserted.
@@ -112,7 +111,8 @@ class CustomLoader:
 			#print('Loading ', filePath.split('/')[-1])
 			gtTexts.append(self.samples[i].gtText)
 		#gtTexts = [self.samples[i].gtText for i in batchRange]
-		imgs = [preprocess(cv2.imread(self.samples[i].filePath, cv2.IMREAD_GRAYSCALE), self.imgSize, self.dataAugmentation) for i in batchRange]
+		#imgs = [preprocess(cv2.imread(self.samples[i].filePath, cv2.IMREAD_GRAYSCALE), self.imgSize, self.dataAugmentation) for i in batchRange] # default
+		imgs = [custom_preprocess(cv2.imread(self.samples[i].filePath, cv2.IMREAD_COLOR), self.imgSize, self.dataAugmentation) for i in batchRange]
 		self.currIdx += self.batchSize
 		return Batch(gtTexts, imgs)
 

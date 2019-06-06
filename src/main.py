@@ -7,7 +7,7 @@ import cv2
 import editdistance
 from DataLoader import DataLoader, Batch, CustomLoader
 from Model import Model, DecoderType
-from SamplePreprocessor import preprocess
+from SamplePreprocessor import preprocess, custom_preprocess
 from Denoiser import remove_shadow_grayscale
 import os
 import random
@@ -20,7 +20,7 @@ class FilePaths:
 	fnCharList = '../model/charList.txt'
 	fnAccuracy = '../model/accuracy.txt'
 	fnCheckpoint = '../model/checkpoint'
-	fnTrain = '../new_data/'
+	fnTrain = '../data/'
 	fnInfer = '../data/test.png'
 	fnCorpus = '../data/corpus.txt'
 	fnTest = '../test/'
@@ -103,7 +103,7 @@ def validate(model, loader):
 
 def infer(model, fnImg):
 	"recognize text in image provided by file path"
-	img = preprocess(cv2.imread(fnImg, cv2.IMREAD_GRAYSCALE), Model.imgSize)
+	img = custom_preprocess(cv2.imread(fnImg, cv2.IMREAD_GRAYSCALE), Model.imgSize)
 
 	batch = Batch(None, [img])
 	(recognized, probability) = model.inferBatch(batch, True)
@@ -128,8 +128,8 @@ def main():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--train', help='train the NN', action='store_true')
 	parser.add_argument('--validate', help='validate the NN', action='store_true')
-	parser.add_argument('--beamsearch', help='use beam search instead of best path decoding', action='store_true')
-	parser.add_argument('--wordbeamsearch', help='use word beam search instead of best path decoding', action='store_true')
+	parser.add_argument('--beamsearch', help='use beam search instead of greedy decoding', action='store_true')
+	parser.add_argument('--wordbeamsearch', help='use word beam search instead of greedy decoding', action='store_true')
 	parser.add_argument('--test', help='test the NN with a batch of images', action='store_true')
 	parser.add_argument('--infer', help="infer a single image")
 	parser.add_argument('--model', help='select the model to use')

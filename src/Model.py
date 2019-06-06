@@ -60,15 +60,18 @@ class Model:
 		if log:
 			self.writer = tf.summary.FileWriter(Model.LOG_PATH, self.sess.graph)
 
-	def setupDeepCNN(self):
-		'Input: (? , 224, 224, 3) => Output: (?, 1, 2048)'
-		module = hub.Module(Model.MODULE_URL, trainable=True)
-		cnnOut = module(self.inputImgs)
+	#def setupDeepCNN(self):
+	#	'Input: (? , 224, 224, 3) => Output: (?, 1, 2048)'
+	#	module = hub.Module(Model.MODULE_URL, trainable=True)
+	#	cnnOut = module(self.inputImgs)
 
-		self.dropout_rate = tf.placeholder_with_default(0.0, shape=())
-		prob = tf.math.subtract(1.0, self.dropout_rate)
-		dropout = tf.nn.dropout(cnnOut, keep_prob=prob)
-		self.cnnOut3d = tf.reshape(tensor=dropout, shape=[-1, 32, 64])
+	#	self.dropout_rate = tf.placeholder_with_default(0.0, shape=())
+	#	prob = tf.math.subtract(1.0, self.dropout_rate)
+	#	dropout = tf.nn.dropout(cnnOut, keep_prob=prob)
+	#	self.cnnOut3d = tf.reshape(tensor=dropout, shape=[-1, 32, 64])
+
+  def setupDeepCNN(self):
+    self.cnnOut3d = ResNet(self.inputImgs)
 
 	def setupRNN2(self):
 		rnnIn = self.cnnOut3d
@@ -262,7 +265,7 @@ class Model:
 		rate = 0.01 if self.batchesTrained < 10 else (0.001 if self.batchesTrained < 10000 else 0.0001) # decay learning rate
 		#rate = 0.01
 		evalList = [self.batch_loss_summary,self.optimizer, self.loss]
-		feedDict = {self.inputImgs : batch.imgs, self.gtTexts : sparse , self.seqLen : [Model.maxTextLen] * numBatchElements, self.learningRate : rate, self.is_train: True, self.dropout_rate: 0.6}
+		feedDict = {self.inputImgs : batch.imgs, self.gtTexts : sparse , self.seqLen : [Model.maxTextLen] * numBatchElements, self.learningRate : rate, self.is_train: True} #  self.dropout_rate: 0.6
 		(summary,_, lossVal) = self.sess.run(evalList, feedDict)
 		self.writer.add_summary(summary, self.batchesTrained)
 		self.batchesTrained += 1
@@ -306,34 +309,34 @@ class Model:
 
 
 class ResNet():
-	def __init__(self):
-		filters = [64, 64, 128, 256, 512]
-        kernels = [7, 3, 3, 3, 3]
-        strides = [2, 0, 2, 2, 2]
+	def __init__(self, imgs):
+    filters = [64, 64, 128, 256, 512]
+    kernels = [7, 3, 3, 3, 3]
+    strides = [2, 0, 2, 2, 2]
 
-        # conv1
-        x = self._conv(self.inputImgs, kernels[0], filters[0], strides[0])
-        x = self._bn(x)
-        x = self._relu(x)
-        x = tf.nn.max_pool(value=x, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1], padding='SAME')
+    # conv1
+    x = self._conv(imgs, kernels[0], filters[0], strides[0])
+    x = self._bn(x)
+    x = self._relu(x)
+    x = tf.nn.max_pool(value=x, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1], padding='SAME')
 
-        # conv2_x
-        x = self._residual_block(x, name='conv2_1')
-        x = self._residual_block(x, name='conv2_2')
+    # conv2_x
+    x = self._residual_block(x, name='conv2_1')
+    x = self._residual_block(x, name='conv2_2')
 
-        # conv3_x
-        x = self._residual_block_first(x, filters[2], strides[2], name='conv3_1')
-        x = self._residual_block(x, name='conv3_2')
+    # conv3_x
+    x = self._residual_block_first(x, filters[2], strides[2], name='conv3_1')
+    x = self._residual_block(x, name='conv3_2')
 
-        # conv4_x
-        x = self._residual_block_first(x, filters[3], strides[3], name='conv4_1')
-        x = self._residual_block(x, name='conv4_2')
+    # conv4_x
+    x = self._residual_block_first(x, filters[3], strides[3], name='conv4_1')
+    x = self._residual_block(x, name='conv4_2')
 
-        # conv5_x
-        x = self._residual_block_first(x, filters[4], strides[4], name='conv5_1')
-        x = self._residual_block(x, name='conv5_2')
+    # conv5_x
+    x = self._residual_block_first(x, filters[4], strides[4], name='conv5_1')
+    x = self._residual_block(x, name='conv5_2')
 
-
+    return x
 
 
     def conv(self, x, filter_size, out_channel, strides, pad='SAME', name='conv'):

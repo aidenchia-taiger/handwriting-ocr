@@ -20,7 +20,7 @@ class FilePaths:
 	fnCharList = '../model/charList.txt'
 	fnAccuracy = '../model/accuracy.txt'
 	fnCheckpoint = '../model/checkpoint'
-	fnTrain = '../data/'
+	fnTrain = '../new_data/'
 	fnInfer = '../data/test.png'
 	fnCorpus = '../data/corpus.txt'
 	fnTest = '../test/'
@@ -31,8 +31,8 @@ def train(model, loader):
 	epoch = 0 # number of training epochs since start
 	bestCharErrorRate = float('inf') # best valdiation character error rate
 	noImprovementSince = 0 # number of epochs no improvement of character error rate occured
-	earlyStopping = 5 # stop training after this number of epochs without improvement, default: 5
-	maxEpochs = 20
+	earlyStopping = 500 # stop training after this number of epochs without improvement, default: 5
+	maxEpochs = 30
 	while True:
 		epoch += 1
 		print('[INFO] Epoch:', epoch)
@@ -103,8 +103,8 @@ def validate(model, loader):
 
 def infer(model, fnImg):
 	"recognize text in image provided by file path"
-	img = custom_preprocess(cv2.imread(fnImg, cv2.IMREAD_GRAYSCALE), Model.imgSize)
-
+	img = preprocess(cv2.imread(fnImg, cv2.IMREAD_GRAYSCALE), Model.imgSize) # default
+	#img = custom_preprocess(cv2.imread(fnImg, cv2.IMREAD_COLOR), Model.imgSize)
 	batch = Batch(None, [img])
 	(recognized, probability) = model.inferBatch(batch, True)
 
@@ -133,6 +133,7 @@ def main():
 	parser.add_argument('--test', help='test the NN with a batch of images', action='store_true')
 	parser.add_argument('--infer', help="infer a single image")
 	parser.add_argument('--model', help='select the model to use')
+	parser.add_argument('--demo', help='turn off writing to report.txt', action='store_true')
 	args = parser.parse_args()
 
 	decoderType = DecoderType.BestPath
@@ -170,8 +171,9 @@ def main():
 
 	### aiden
 	elif args.test:
-		report = open(FilePaths.fnReport, 'a')
-		report.write('\n[MODEL] {}'.format(open(FilePaths.fnCheckpoint, 'r').readline().split(' ')[-1]))
+		if not args.demo:
+			report = open(FilePaths.fnReport, 'a')
+			report.write('\n[MODEL] {}'.format(open(FilePaths.fnCheckpoint, 'r').readline().split(' ')[-1]))
 
 		model = Model(open(FilePaths.fnCharList).read(), decoderType, modelName=modelName,mustRestore=True)
 		gtTexts = read_gt_values(FilePaths.fnTest + 'ground_truth.txt')
@@ -193,15 +195,17 @@ def main():
 				statement = '[ERR{}] {} -> {}'.format(dist,gt,recognized)
 				
 			print(statement)
-			report.write(statement + '\n')
+			if not args.demo:
+				report.write(statement + '\n')
 
 		charErrorRate = numCharErr / numCharTotal
 		wordAccuracy = numWordOK / numWordTotal
 		result = '[INFO] Character Error Rate: {:.{}f}% | Word Accuracy: {:.{}f}%'.format(charErrorRate*100,2,wordAccuracy*100,2)
 		print(result)
-		report.write(result)
-		print('[INFO] Report written to ../model/report.txt')
-		report.close()
+		if not args.demo:
+			report.write(result)
+			print('[INFO] Report written to ../model/report.txt')
+			report.close()
 	###
 
 	# infer text on test image

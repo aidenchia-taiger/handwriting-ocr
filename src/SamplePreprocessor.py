@@ -6,14 +6,16 @@ from WordSegmentator import prepareImg, wordSegmentation
 import random
 import numpy as np
 import cv2
+import pdb
+import matplotlib.pyplot as plt
 
 def custom_preprocess(img, imgSize, dataAugmentation=False):
-	
 	if dataAugmentation:
 		da = DataAugmentator()
 		img = da.augment(img)
 
 	img = cv2.resize(img, (imgSize[0], imgSize[1]))
+	img = cv2.transpose(img)
 	img = cv2.normalize(img, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
 	return img
 
@@ -31,13 +33,13 @@ def preprocess(img, imgSize, dataAugmentation=False):
 		img = da.augment(img)
 
 	### if not doing data augmentation, must be inferring, so perform word segmentation to get word tightly cropped
-	else:
-		img = prepareImg(img, 50)
-		try:
-			res = wordSegmentation(img, kernelSize=25, sigma=11, theta=7, minArea=100)[0]
-			img = res[1] # res[0] is the bounding box coordinates, res[1] is the tightly cropped img itself
-		except IndexError: # sometimes word segmentation doesn't always work
-			print('Skipping word segmentation')
+	#else:
+	#	img = prepareImg(img, 50)
+	#	try:
+	#		res = wordSegmentation(img, kernelSize=25, sigma=11, theta=7, minArea=100)[0]
+	#		img = res[1] # res[0] is the bounding box coordinates, res[1] is the tightly cropped img itself
+	#	except IndexError: # sometimes word segmentation doesn't always work
+	#		print('Skipping word segmentation')
 	###
 
 	# create target image and copy sample image into it
@@ -64,7 +66,7 @@ def preprocess(img, imgSize, dataAugmentation=False):
 
 if __name__ == ('__main__'):
 	imgSize = (128, 32)
-	img = preprocess(cv2.imread('sample_imgs/iam-test2.png', cv2.IMREAD_GRAYSCALE), imgSize, dataAugmentation=True)
-	cv2.imshow('preprocessed-img',img)
-	cv2.waitKey(0)
-	cv2.destroyAllWindows()
+	#img = preprocess(cv2.imread('sample_imgs/iam-test2.png', cv2.IMREAD_GRAYSCALE), imgSize, dataAugmentation=True)
+	img = custom_preprocess(cv2.imread('sample_imgs/iam-test2.png', cv2.IMREAD_GRAYSCALE), imgSize, dataAugmentation=True)
+	plt.imshow(img, cmap='gray')
+	plt.show()

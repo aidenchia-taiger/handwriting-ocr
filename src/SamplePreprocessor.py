@@ -2,6 +2,7 @@ from __future__ import division
 from __future__ import print_function
 from DataAugmentator import DataAugmentator
 from WordSegmentator import prepareImg, wordSegmentation
+import argparse
 
 import random
 import numpy as np
@@ -25,7 +26,7 @@ def preprocess(img, imgSize, dataAugmentation=False):
 
 	# there are damaged files in IAM dataset - just use black image instead
 	if img is None:
-		img = np.zeros([imgSize[1], imgSize[0]])
+		img = np.zeros([imgSize[1], imgSize[0]]) 
 
 	# increase dataset size by applying random stretches to the images
 	if dataAugmentation:
@@ -64,9 +65,21 @@ def preprocess(img, imgSize, dataAugmentation=False):
 	img = img / s if s>0 else img
 	return img
 
-if __name__ == ('__main__'):
-	imgSize = (128, 32)
-	#img = preprocess(cv2.imread('sample_imgs/iam-test2.png', cv2.IMREAD_GRAYSCALE), imgSize, dataAugmentation=True)
-	img = custom_preprocess(cv2.imread('sample_imgs/iam-test2.png', cv2.IMREAD_GRAYSCALE), imgSize, dataAugmentation=True)
+def main():
+	parser = argparse.ArgumentParser()
+	parser.add_argument('--i', help="path to input image")
+	args = parser.parse_args()
+
+	if args.i == None:
+		print('Please provide command line argument to input file --i')
+		return
+
+	imgSize = (256, 64)
+	img = cv2.imread(args.i, cv2.IMREAD_GRAYSCALE)
+	img = custom_preprocess(img, imgSize, True)
+	img = cv2.transpose(img)
 	plt.imshow(img, cmap='gray')
 	plt.show()
+
+if __name__ == '__main__':
+	main()

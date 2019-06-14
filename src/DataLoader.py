@@ -110,9 +110,9 @@ class CustomLoader:
             filePath = self.samples[i].filePath
             #print('Loading ', filePath.split('/')[-1])
             gtTexts.append(self.samples[i].gtText)
-        #gtTexts = [self.samples[i].gtText for i in batchRange]
-        imgs = [preprocess(cv2.imread(self.samples[i].filePath, cv2.IMREAD_GRAYSCALE), self.imgSize, self.dataAugmentation) for i in batchRange] # default
-        #imgs = [custom_preprocess(cv2.imread(self.samples[i].filePath, cv2.IMREAD_COLOR), self.imgSize, self.dataAugmentation) for i in batchRange]
+            #gtTexts = [self.samples[i].gtText for i in batchRange]
+            imgs = [preprocess(cv2.imread(self.samples[i].filePath, cv2.IMREAD_GRAYSCALE), self.imgSize, self.dataAugmentation) for i in batchRange] # default
+            #imgs = [custom_preprocess(cv2.imread(self.samples[i].filePath, cv2.IMREAD_COLOR), self.imgSize, self.dataAugmentation) for i in batchRange]
         self.currIdx += self.batchSize
         return Batch(gtTexts, imgs)
 

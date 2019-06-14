@@ -23,7 +23,7 @@ class FilePaths:
 	fnTrain = '../new_data/'
 	fnInfer = '../data/test.png'
 	fnCorpus = '../data/corpus.txt'
-	fnTest = '../test/'
+	fnTest = '../new_data/'
 	fnReport = '../model/report.txt'
 
 def train(model, loader):
@@ -32,7 +32,9 @@ def train(model, loader):
 	bestCharErrorRate = float('inf') # best valdiation character error rate
 	noImprovementSince = 0 # number of epochs no improvement of character error rate occured
 	earlyStopping = 500 # stop training after this number of epochs without improvement, default: 5
-	maxEpochs = 30
+	maxEpochs = 20
+
+	printInfo(model, earlyStopping, maxEpochs)
 	while True:
 		epoch += 1
 		print('[INFO] Epoch:', epoch)
@@ -69,6 +71,12 @@ def train(model, loader):
 			print('[INFO] Reached max. no. of epochs')
 			break
 
+def printInfo(model, earlyStopping, maxEpochs):
+	print('[INFO] Image Size: ', model.imgSize)
+	print('[INFO] Batch Size: ', model.batchSize)
+	print('[INFO] Early Stopping: ', earlyStopping)
+	print('[INFO] Max no. of epochs: ', maxEpochs)
+
 
 def validate(model, loader):
 	"validate NN"
@@ -104,7 +112,7 @@ def validate(model, loader):
 def infer(model, fnImg):
 	"recognize text in image provided by file path"
 	img = preprocess(cv2.imread(fnImg, cv2.IMREAD_GRAYSCALE), Model.imgSize) # default
-	#img = custom_preprocess(cv2.imread(fnImg, cv2.IMREAD_COLOR), Model.imgSize)
+	#img = custom_preprocess(cv2.imread(fnImg, cv2.IMREAD_GRAYSCALE), Model.imgSize)
 	batch = Batch(None, [img])
 	(recognized, probability) = model.inferBatch(batch, True)
 
@@ -175,7 +183,7 @@ def main():
 			report = open(FilePaths.fnReport, 'a')
 			report.write('\n[MODEL] {}'.format(open(FilePaths.fnCheckpoint, 'r').readline().split(' ')[-1]))
 
-		model = Model(open(FilePaths.fnCharList).read(), decoderType, modelName=modelName,mustRestore=True)
+		model = Model(open(FilePaths.fnCharList).read(), decoderType, mustRestore=True, modelName=modelName)
 		gtTexts = read_gt_values(FilePaths.fnTest + 'ground_truth.txt')
 
 		numWordOK = 0
@@ -183,6 +191,7 @@ def main():
 		numCharErr = 0
 		numCharTotal = 0
 		for fullPath, gt in gtTexts.items():
+			print(fullPath)
 			recognized, _ = infer(model, fullPath)
 			numWordOK += 1 if gt == recognized else 0
 			numWordTotal += 1
@@ -219,7 +228,7 @@ def main():
 		else:
 			infer(model, FilePaths.fnInfer)
 
-### aiden
+
 def read_gt_values(path):
 	f = open(path)
 	gt_dic = {}
@@ -229,26 +238,5 @@ def read_gt_values(path):
 	print(gt_dic)
 	return gt_dic 
 
-def get_img_paths(path):
-	paths = []
-	for root, _, pathnames in os.walk(path):
-		for path in pathnames:
-			if ".png" in path:
-				paths.append(os.path.abspath(os.path.join(root, path)))
-
-	print(paths)
-	return paths
-
-def write_report(dic, txtfilename, message=''):
-	f = open(txtfilename, "w+")
-	f.write()
-	for k, v in dic.items():
-		f.write("{} -> {} \n".format(k, v)) 
-
-	print("[INFO] Report written to {}".format(txtfilename))
-	f.close()
-###
-
 if __name__ == '__main__':
 	main()
-	#read_gt_values('../test/' + 'ground_truth.txt')

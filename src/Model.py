@@ -6,6 +6,7 @@ import numpy as np
 import tensorflow as tf
 import datetime
 import pdb # for debugging
+from SamplePreprocessor import preprocess, custom_preprocess
 
 class DecoderType:
     BestPath = 0
@@ -17,7 +18,8 @@ class Model:
 
     # model constants
     batchSize = 50 # default: 50
-    imgSize = (128, 32) # default: (128, 32)
+    #imgSize = (128, 32) # default: (128, 32)
+    imgSize = (256, 64)
     maxTextLen = 32
     MODULE_URL = 'https://tfhub.dev/google/imagenet/resnet_v2_50/feature_vector/3'
     LOG_PATH = '../model/logs/' + datetime.datetime.now().strftime("Time_%H%M_Date_%d-%m")
@@ -39,8 +41,8 @@ class Model:
         #self.inputImgs = tf.placeholder(tf.float32, shape=(None, Model.imgSize[0], Model.imgSize[1], Model.imgSize[2]))
 
         # setup CNN, RNN and CTC
-        self.setupCNN() # default
-        #self.setupDeepCNN()
+        #self.setupCNN() # default
+        self.setupWideCNN()
         self.setupRNN()
         self.setupCTC()
 
@@ -91,80 +93,45 @@ class Model:
         dropout = tf.nn.dropout(pool, keep_prob=prob)
         self.cnnOut4d = dropout
 
-    def setupDeepCNN(self):
-        "Input: (?, 128, 32, 3) => Output: (?, 32, 1, 256)"
-        filters = [32, 64, 128, 256, 256]
-        kernels = [7, 3, 3, 3, 3]
-        strides = [(2,2), (1,2), (1,2), (1,2), (2,2)]
-        
-        # conv1
-        x = self._conv(self.inputImgs, kernels[0], filters[0], strides[0], 'SAME', 'conv1') # (?, 128, 32, 3) => (?, 64, 16, 32)
-        x = self._bn(x, name='conv1_bn')
-        x = self._relu(x, name='conv1_relu')
+    def setupWideCNN(self):
+        "Input: (?, 256, 64) => Output: (?, 32, 1, 256)"
+        cnnIn4d = tf.expand_dims(input=self.inputImgs, axis=3) # (?, 256, 64) => (?, 256, 64, 1)
+        # list of parameters for the layers
+        kernelVals = [5, 5, 3, 3, 3]
+        featureVals = [1, 32, 64, 128, 128, 256]
+        strideVals = poolVals = [(2,2), (2,2), (2,2), (1,2), (1,2)]
+        numLayers = len(strideVals)
 
-        # conv2_x
-        x = self._residual_block_first(x, filters[1], strides[1],'conv2_1') # (?, 64, 16, 32) => (?, 64, 8, 64)
-        x = self._residual_block(x, name='conv2_2')
+        # create layers
+        pool = cnnIn4d # input to first CNN layer
+        for i in range(numLayers):
+            kernel = tf.Variable(tf.truncated_normal([kernelVals[i], kernelVals[i], featureVals[i], featureVals[i + 1]], stddev=0.1)) # , name='kernel{}_1'.format(i)
+            conv = tf.nn.conv2d(pool, kernel, padding='SAME',  strides=(1,1,1,1)) # , name='conv{}_1'.format(i) (?, 256, 64, 1) => (?, 256, 64, 32)
+            conv_norm = tf.layers.batch_normalization(conv, training=self.is_train) # , name='conv_norm{}_1'.format(i)
+            relu = tf.nn.relu(conv_norm) # , name='relu{}_1'.format(i)
 
-        # conv3_x
-        x = self._residual_block_first(x, filters[2], strides[2], 'conv3_1') # (?, 64, 8, 64) => (?, 64, 4, 128)
-        x = self._residual_block(x, name='conv3_2')
+            kernel2 = tf.Variable(tf.truncated_normal([kernelVals[i], kernelVals[i], featureVals[i + 1], featureVals[i + 1]], stddev=0.1))
+            conv2 = tf.nn.conv2d(relu, kernel2, padding='SAME',  strides=(1,1,1,1)) 
+            conv_norm2 = tf.layers.batch_normalization(conv2, training=self.is_train) 
+            relu2 = tf.nn.relu(conv_norm2)
 
-        # conv4_x
-        x = self._residual_block_first(x, filters[3], strides[2], name='conv4_1') # (?, 64, 4, 128) => (?, 64, 2, 256)
-        x = self._residual_block(x, name='conv4_2')
+            conv3 = tf.nn.conv2d(relu2, kernel2, padding='SAME', strides=(1,1,1,1))
+            conv_norm3 = tf.layers.batch_normalization(conv3, training=self.is_train)
+            relu3 = tf.nn.relu(conv_norm3)
 
-        # conv5_x
-        x = self._residual_block_first(x, filters[4], strides[4], name='conv5_1') # (?, 64, 2, 256) => (?, 32, 1, 256)
-        x = self._residual_block(x, name='conv5_2')
+            pool = tf.nn.max_pool(relu3, (1, poolVals[i][0], poolVals[i][1], 1), 
+                                    (1, strideVals[i][0], strideVals[i][1], 1), 'VALID') # (?, 32, 2, 256)
 
-        self.cnnOut4d = x
+        kernel3 = tf.Variable(tf.truncated_normal([1, 1, 256, 256], stddev=0.1)) # 1 x 1 convolution
+        conv4 = tf.nn.conv2d(pool, kernel3, padding='SAME', strides=(1,1,2,1))
+        #pdb.set_trace()
+        self.dropout_rate = tf.placeholder_with_default(0.0, shape=())
+        prob = tf.math.subtract(1.0, self.dropout_rate)
+        dropout = tf.nn.dropout(conv4, keep_prob=prob)
+        self.cnnOut4d = dropout
 
+    #def visualizeCNN(self, image):
 
-    def _conv(self, x, filter_size, out_channel, strides, pad='SAME', name='conv'):
-        in_shape = x.get_shape()
-        with tf.variable_scope(name):
-            kernel = tf.get_variable(name='kernel', 
-                shape=[filter_size, filter_size, in_shape[3], out_channel],
-                dtype=tf.float32, 
-                initializer=tf.random_normal_initializer(stddev=np.sqrt(2.0/filter_size/filter_size/out_channel)))
-
-        conv = tf.nn.conv2d(input=x, filter=kernel, strides=[1, strides[0], strides[1], 1], padding=pad)
-        return conv
-
-    def _bn(self, x, name='bn'):
-        x = tf.layers.batch_normalization(x, training=self.is_train, name=name)
-        return x
-
-    def _relu(self, x, name='relu'):
-        return tf.nn.relu(x, name='relu')
-
-
-    def _residual_block(self, x, name="residual"):
-        num_channel = x.get_shape().as_list()[-1]
-        with tf.variable_scope(name) as scope:
-            shortcut = x
-            x = self._conv(x, 3, num_channel, (1,1), name='conv_1') 
-            x = self._bn(x, name='bn_1')
-            x = self._relu(x, name='relu_1')
-            x = self._conv(x, 3, num_channel, (1,1), name='conv_2')
-            x = self._bn(x, name='bn_2')
-
-            x = x + shortcut
-            x = self._relu(x, name='relu_2')
-        return x
-
-    def _residual_block_first(self, x, out_channel, strides, name='residual'):
-        in_channel = x.get_shape().as_list()[-1]
-        with tf.variable_scope(name) as scope:
-            shortcut = self._conv(x, 1, out_channel, strides, name='shortcut')
-            x = self._conv(x, 3, out_channel, strides, 'SAME', 'conv_1')
-            x = self._bn(x)
-            x = self._relu(x, 'relu_1')
-            x = self._conv(x, 3, out_channel, (1, 1), 'SAME', 'conv_2')
-            #x = x + shortcut
-            x = self._relu(x, 'relu_2')
-        return x
 
     def setupRNN(self):
         "create RNN layers and return output of these layers"
@@ -287,11 +254,12 @@ class Model:
         else:
             # ctc returns tuple, first element is SparseTensor 
             decoded=ctcOutput[0][0] 
+            # print(ctcOutput)
 
             # go over all indices and save mapping: batch -> values
             idxDict = { b : [] for b in range(batchSize) }
             for (idx, idx2d) in enumerate(decoded.indices):
-                label = decoded.values[idx]
+                label = decoded.values[idx] # e.g. decoded.values = [67, 64, 57]
                 batchElement = idx2d[0] # index according to [b,t]
                 encodedLabelStrs[batchElement].append(label)
 
@@ -321,6 +289,8 @@ class Model:
         evalList = [self.decoder] + ([self.ctcIn3dTBC] if calcProbability else [])
         feedDict = {self.inputImgs : batch.imgs, self.seqLen : [Model.maxTextLen] * numBatchElements, self.is_train: False}
         evalRes = self.sess.run([self.decoder, self.ctcIn3dTBC], feedDict)
+
+        # get the indexes of the characters 
         decoded = evalRes[0]
         texts = self.decoderOutputToText(decoded, numBatchElements)
         
@@ -330,8 +300,12 @@ class Model:
             sparse = self.toSparse(batch.gtTexts) if probabilityOfGT else self.toSparse(texts)
             ctcInput = evalRes[1]
             evalList = self.lossPerElement
+            # pdb.set_trace()
             feedDict = {self.savedCtcInput : ctcInput, self.gtTexts : sparse, self.seqLen : [Model.maxTextLen] * numBatchElements, self.is_train: False}
+            #try:
             lossVals = self.sess.run(evalList, feedDict)
+            #except:
+                #pdb.set_trace()
             probs = np.exp(-lossVals)
         return (texts, probs)
 
@@ -344,3 +318,25 @@ class Model:
         self.snapID += 1
         self.saver.save(self.sess, '../model/snapshot', global_step=self.snapID)
         print('[INFO] Saved model to ../model/snapshot')
+
+def main():
+    from tensorflow.python.tools import inspect_checkpoint as chkp 
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model', help='name of model')
+    parser.add_argument('--i', help='rel or abs path to input image to pass through model')
+    args = parser.parse_args()
+
+    # See weights
+    chkp.print_tensors_in_checkpoint_file('../model/' + args.model, tensor_name='', all_tensors=True)
+
+    model = Model(open('../model/charList.txt').read(), decoderType, mustRestore=True, modelName=modelName)
+    img = preprocess(cv2.imread(args.i, cv2.IMREAD_GRAYSCALE), model.imgSize)
+    img = tf.expand_dims(input=img, axis=3)
+    kernel1_1 = tf.get_collection(tf.GraphKeys.VARIABLES, 'conv1_1')
+    conv1_1 = tf.nn.conv2d(img, kernel1_1, padding='SAME',  strides=(1,1,1,1))
+    with model.writer.as_default():
+        tf.summary.image('conv1_1', conv1_1, step=0)
+
+if __name__=='__main__':
+    main()

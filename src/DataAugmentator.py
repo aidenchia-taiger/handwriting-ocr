@@ -7,9 +7,11 @@ import imgaug as ia
 import imgaug.augmenters as iaa
 import matplotlib.pyplot as plt
 from WordSegmentator import prepareImg, wordSegmentation
+import argparse
 
 class DataAugmentator:
 	def __init__(self):
+		#print('[INFO] Applying data augmentation...')
 		sometimes = lambda aug: iaa.Sometimes(0.5, aug)
 		rare = lambda aug: iaa.Sometimes(0.25, aug)
 		self.seq = iaa.Sequential([sometimes(iaa.Affine(
@@ -24,7 +26,7 @@ class DataAugmentator:
 		return img
 
 	def read_image(self, imgPath):
-		img = cv2.imread(imgPath, cv2.COLOR_BGR2RGB)
+		img = cv2.imread(imgPath, cv2.IMREAD_GRAYSCALE)
 		return img
 
 	def show_image(self, img):
@@ -35,22 +37,18 @@ class DataAugmentator:
 		cv2.imwrite(file,img)
 
 
-def main(file='sample_imgs/iam-test4.png'):
+def main():
+	parser = argparse.ArgumentParser()
+	parser.add_argument('--i', help="path to input image")
+	args = parser.parse_args()
+
 	da = DataAugmentator()
-	img = da.read_image(file)
+	img = da.read_image(args.i)
 	img = da.augment(img)
 	da.show_image(img)
-	#img = read_image(file)
-	#img = augment(img)	
-	#show_image(img)
-	#for i in range(1,11):
-	#	img = read_image(file)
-	#	img = augment(img)
-	#	filename = '../new_data/ic5_{}.png'.format(i)
-	#	save_image(file=filename, img=img)
 
 if __name__ == "__main__":
-	main('sample_imgs/iam-test4.png')
+	main()
 
 
 

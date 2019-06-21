@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<h1>Taiger Handwriting Recognition</h1>
+<head>
+  <title>Upload Image</title>
+    {{ dropzone.load() }}
+    {{ dropzone.style('border: 2px dashed #0087F7; margin: 10%; min-height: 400px;') }}
+</head>
+    <body>
+        {{ dropzone.create(action_view='results') }}
+    </body>
+</html>
+

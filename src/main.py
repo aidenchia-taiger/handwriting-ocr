@@ -23,7 +23,7 @@ class FilePaths:
 	fnTrain = '../new_data/'
 	fnInfer = '../data/test.png'
 	fnCorpus = '../data/corpus.txt'
-	fnTest = '../new_data/'
+	fnTest = '../test/'
 	fnReport = '../model/report.txt'
 
 def train(model, loader):
@@ -32,7 +32,7 @@ def train(model, loader):
 	bestCharErrorRate = float('inf') # best valdiation character error rate
 	noImprovementSince = 0 # number of epochs no improvement of character error rate occured
 	earlyStopping = 500 # stop training after this number of epochs without improvement, default: 5
-	maxEpochs = 20
+	maxEpochs = 300
 
 	printInfo(model, earlyStopping, maxEpochs)
 	while True:
@@ -76,7 +76,6 @@ def printInfo(model, earlyStopping, maxEpochs):
 	print('[INFO] Batch Size: ', model.batchSize)
 	print('[INFO] Early Stopping: ', earlyStopping)
 	print('[INFO] Max no. of epochs: ', maxEpochs)
-
 
 def validate(model, loader):
 	"validate NN"
@@ -139,6 +138,7 @@ def main():
 	parser.add_argument('--beamsearch', help='use beam search instead of greedy decoding', action='store_true')
 	parser.add_argument('--wordbeamsearch', help='use word beam search instead of greedy decoding', action='store_true')
 	parser.add_argument('--test', help='test the NN with a batch of images', action='store_true')
+	parser.add_argument('--serve', help='serve a NN model on Flask app', action='store_true')
 	parser.add_argument('--infer', help="infer a single image")
 	parser.add_argument('--model', help='select the model to use')
 	parser.add_argument('--demo', help='turn off writing to report.txt', action='store_true')
@@ -216,6 +216,40 @@ def main():
 			print('[INFO] Report written to ../model/report.txt')
 			report.close()
 	###
+
+	elif args.serve:
+		from flask import Flask, render_template, request, g
+		from flask_dropzone import Dropzone
+		from flask_uploads import UploadSet, configure_uploads, IMAGES, patch_request_class
+		model = Model(open(FilePaths.fnCharList).read(), decoderType, mustRestore=True, modelName=modelName)
+
+		app = Flask(__name__)
+		dropzone = Dropzone(app)
+
+		# Dropzone settings
+		app.config['DROPZONE_UPLOAD_MULTIPLE'] = True
+		app.config['DROPZONE_ALLOWED_FILE_CUSTOM'] = True
+		app.config['DROPZONE_ALLOWED_FILE_TYPE'] = 'image/*'
+		app.config['DROPZONE_REDIRECT_VIEW'] = 'results'
+		app.config['UPLOADED_PHOTOS_DEST'] = 'upload'
+
+		photos = UploadSet('photos', IMAGES)
+		configure_uploads(app, photos)
+		patch_request_class(app) # set maximum file size to be 16MB
+
+		@app.route('/', methods=['POST', 'GET'])
+		def upload_image():
+			if request.method == 'POST':
+				print('fwejuifbwevbebveriujvbreivberivberibvreuib')
+				file = request.files.get('file')
+				file.save(os.path.join('upload', file.filename))
+			return render_template('upload.html')
+
+		@app.route('/results', methods=['POST', 'GET'])
+		def results():
+			return render_template('results.html')
+
+		app.run(debug=True)
 
 	# infer text on test image
 	else:

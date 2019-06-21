@@ -21,7 +21,6 @@ class Model:
     #imgSize = (128, 32) # default: (128, 32)
     imgSize = (256, 64)
     maxTextLen = 32
-    MODULE_URL = 'https://tfhub.dev/google/imagenet/resnet_v2_50/feature_vector/3'
     LOG_PATH = '../model/logs/' + datetime.datetime.now().strftime("Time_%H%M_Date_%d-%m")
 
     def __init__(self, charList, decoderType=DecoderType.BestPath, mustRestore=False, modelName=None, log=False):
@@ -106,16 +105,16 @@ class Model:
         pool = cnnIn4d # input to first CNN layer
         for i in range(numLayers):
             kernel = tf.Variable(tf.truncated_normal([kernelVals[i], kernelVals[i], featureVals[i], featureVals[i + 1]], stddev=0.1)) # , name='kernel{}_1'.format(i)
-            conv = tf.nn.conv2d(pool, kernel, padding='SAME',  strides=(1,1,1,1)) # , name='conv{}_1'.format(i) (?, 256, 64, 1) => (?, 256, 64, 32)
-            conv_norm = tf.layers.batch_normalization(conv, training=self.is_train) # , name='conv_norm{}_1'.format(i)
-            relu = tf.nn.relu(conv_norm) # , name='relu{}_1'.format(i)
+            conv = tf.nn.conv2d(pool, kernel, padding='SAME',  strides=(1,1,1,1)) # (?, 256, 64, 1) => (?, 256, 64, 32)
+            conv_norm = tf.layers.batch_normalization(conv, training=self.is_train) 
+            relu = tf.nn.relu(conv_norm) 
 
-            kernel2 = tf.Variable(tf.truncated_normal([kernelVals[i], kernelVals[i], featureVals[i + 1], featureVals[i + 1]], stddev=0.1))
+            kernel2 = tf.Variable(tf.truncated_normal([kernelVals[i], kernelVals[i], featureVals[i + 1], featureVals[i + 1]], stddev=0.1)) #, name='kernel{}_2'.format(i)
             conv2 = tf.nn.conv2d(relu, kernel2, padding='SAME',  strides=(1,1,1,1)) 
             conv_norm2 = tf.layers.batch_normalization(conv2, training=self.is_train) 
             relu2 = tf.nn.relu(conv_norm2)
 
-            conv3 = tf.nn.conv2d(relu2, kernel2, padding='SAME', strides=(1,1,1,1))
+            conv3 = tf.nn.conv2d(relu2, kernel2, padding='SAME', strides=(1,1,1,1)) 
             conv_norm3 = tf.layers.batch_normalization(conv3, training=self.is_train)
             relu3 = tf.nn.relu(conv_norm3)
 
@@ -139,7 +138,7 @@ class Model:
 
         # basic cells which is used to build RNN
         numHidden = 256
-        cells = [tf.contrib.rnn.LSTMCell(num_units=numHidden, state_is_tuple=True) for _ in range(2)] # 2 layers
+        cells = [tf.contrib.rnn.LSTMCell(num_units=numHidden, state_is_tuple=True) for i in range(2)] # default: 2 layers
 
         # stack basic cells
         stacked = tf.contrib.rnn.MultiRNNCell(cells, state_is_tuple=True)
@@ -153,7 +152,6 @@ class Model:
         # project output to chars (including blank): BxTx1x2H -> BxTx1xC -> BxTxC
         kernel = tf.Variable(tf.truncated_normal([1, 1, numHidden * 2, len(self.charList) + 1], stddev=0.1))
         self.rnnOut3d = tf.squeeze(tf.nn.atrous_conv2d(value=concat, filters=kernel, rate=1, padding='SAME'), axis=[2]) # (?, 32, 1, 512) => (?, 32, 1, 80) => (?, 32, 80)
-
 
     def setupCTC(self):
         "create CTC loss and decoder and return them"
@@ -274,7 +272,7 @@ class Model:
         rate = 0.01 if self.batchesTrained < 10 else (0.001 if self.batchesTrained < 10000 else 0.0001) # decay learning rate
         #rate = 0.01
         evalList = [self.batch_loss_summary,self.optimizer, self.loss]
-        feedDict = {self.inputImgs : batch.imgs, self.gtTexts : sparse , self.seqLen : [Model.maxTextLen] * numBatchElements, self.learningRate : rate, self.is_train: True} # , self.dropout_rate: 0.6
+        feedDict = {self.inputImgs : batch.imgs, self.gtTexts : sparse , self.seqLen : [Model.maxTextLen] * numBatchElements, self.learningRate : rate, self.is_train: True, self.dropout_rate: 0.6} # 
         (summary,_, lossVal) = self.sess.run(evalList, feedDict)
         self.writer.add_summary(summary, self.batchesTrained)
         self.batchesTrained += 1

@@ -13,6 +13,8 @@ import os
 import random
 import tensorflow as tf
 from WordSegmentator import wordSegmentation, prepareImg
+import pdb
+import numpy as np
 
 class FilePaths:
 	"filenames and paths to data"
@@ -218,36 +220,27 @@ def main():
 	###
 
 	elif args.serve:
-		from flask import Flask, render_template, request, g
-		from flask_dropzone import Dropzone
-		from flask_uploads import UploadSet, configure_uploads, IMAGES, patch_request_class
+		from flask import Flask, render_template, request
+		from PIL import Image
+		import io
 		model = Model(open(FilePaths.fnCharList).read(), decoderType, mustRestore=True, modelName=modelName)
-
 		app = Flask(__name__)
-		dropzone = Dropzone(app)
 
-		# Dropzone settings
-		app.config['DROPZONE_UPLOAD_MULTIPLE'] = True
-		app.config['DROPZONE_ALLOWED_FILE_CUSTOM'] = True
-		app.config['DROPZONE_ALLOWED_FILE_TYPE'] = 'image/*'
-		app.config['DROPZONE_REDIRECT_VIEW'] = 'results'
-		app.config['UPLOADED_PHOTOS_DEST'] = 'upload'
-
-		photos = UploadSet('photos', IMAGES)
-		configure_uploads(app, photos)
-		patch_request_class(app) # set maximum file size to be 16MB
-
-		@app.route('/', methods=['POST', 'GET'])
-		def upload_image():
-			if request.method == 'POST':
-				print('fwejuifbwevbebveriujvbreivberivberibvreuib')
-				file = request.files.get('file')
-				file.save(os.path.join('upload', file.filename))
+		@app.route('/', methods=['GET', 'POST'])
+		def upload():
 			return render_template('upload.html')
 
-		@app.route('/results', methods=['POST', 'GET'])
-		def results():
-			return render_template('results.html')
+		@app.route('/predict', methods=['GET', 'POST'])
+		def predict():
+			if request.method == 'POST':
+				img = np.array(Image.open(io.BytesIO(request.files['image'].read())).convert('L'))
+				img = preprocess(img, Model.imgSize, True)
+				batch = Batch(None, [img])
+				recognized, probability = model.inferBatch(batch, True)
+				return 'Prediction: {}'.format(recognized[0])
+			return 'Please upload an image'
+
+
 
 		app.run(debug=True)
 

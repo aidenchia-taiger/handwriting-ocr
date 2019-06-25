@@ -191,7 +191,9 @@ class Model:
         print('Python: '+sys.version)
         print('Tensorflow: '+tf.__version__)
 
-        sess=tf.Session() # TF session
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        sess=tf.Session(config=config) # TF session
 
         saver = tf.train.Saver(max_to_keep=1) # saver saves model to file
 
@@ -298,12 +300,8 @@ class Model:
             sparse = self.toSparse(batch.gtTexts) if probabilityOfGT else self.toSparse(texts)
             ctcInput = evalRes[1]
             evalList = self.lossPerElement
-            # pdb.set_trace()
             feedDict = {self.savedCtcInput : ctcInput, self.gtTexts : sparse, self.seqLen : [Model.maxTextLen] * numBatchElements, self.is_train: False}
-            #try:
             lossVals = self.sess.run(evalList, feedDict)
-            #except:
-                #pdb.set_trace()
             probs = np.exp(-lossVals)
         return (texts, probs)
 
